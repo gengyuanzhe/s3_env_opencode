@@ -61,17 +61,13 @@ export default function LogPanel() {
     return (
       <div
         style={{
-          position: 'fixed',
-          bottom: 0,
-          left: 0,
-          right: 0,
           background: '#fff',
           borderTop: '1px solid #d9d9d9',
           padding: '8px 16px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          zIndex: 1000,
+          flexShrink: 0,
         }}
       >
         <span style={{ color: '#8c8c8c' }}>
@@ -92,16 +88,12 @@ export default function LogPanel() {
   return (
     <div
       style={{
-        position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
         background: '#fff',
         borderTop: '2px solid #1890ff',
-        zIndex: 1000,
-        maxHeight: '40vh',
+        maxHeight: '30vh',
         display: 'flex',
         flexDirection: 'column',
+        flexShrink: 0,
       }}
     >
       <Card
@@ -130,7 +122,7 @@ export default function LogPanel() {
             </Button>
           </div>
         }
-        styles={{ body: { padding: 0, maxHeight: 'calc(40vh - 57px)', overflow: 'hidden' } }}
+        styles={{ body: { padding: 0, overflow: 'hidden' } }}
       >
         {sortedLogs.length === 0 ? (
           <Empty
@@ -140,7 +132,7 @@ export default function LogPanel() {
         ) : (
           <div
             ref={scrollRef}
-            style={{ maxHeight: 'calc(40vh - 57px)', overflow: 'auto', padding: '0 16px' }}
+            style={{ maxHeight: 'calc(30vh - 57px)', overflow: 'auto', padding: '0 16px' }}
           >
             {sortedLogs.map((entry) => (
               <LogItem key={entry.id} entry={entry} />

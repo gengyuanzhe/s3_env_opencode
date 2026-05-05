@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Table, Modal, Input, Button, Popconfirm, Card, Typography, Tooltip, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons';
-import type { CommandTemplate } from '../types';
-import { getCommands, saveCommand, deleteCommand } from '../utils/storage';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Table, Modal, Input, Button, Popconfirm, Card, Typography, Tooltip, Alert, message, Select, Row, Col } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CopyOutlined, SnippetsOutlined } from '@ant-design/icons';
+import type { CommandTemplate, Environment, NodeInfo } from '../types';
+import { getCommands, saveCommand, deleteCommand, getEnvironments } from '../utils/storage';
 import { useLogStore } from '../store/logStore';
 
 const { Text } = Typography;
@@ -21,6 +21,14 @@ const variableReferences: VariableReference[] = [
   { key: '4', variable: '{nodeName}', description: '节点名称' },
 ];
 
+function substituteVariables(template: string, node: NodeInfo): string {
+  return template
+    .replace(/{internalIp}/g, node.internalIp)
+    .replace(/{externalIp}/g, node.externalIp)
+    .replace(/{credentials}/g, node.credentials)
+    .replace(/{nodeName}/g, node.name);
+}
+
 export default function CommandManager() {
   const { addLog } = useLogStore();
   const [commands, setCommands] = useState<CommandTemplate[]>([]);
@@ -29,6 +37,12 @@ export default function CommandManager() {
   const [formName, setFormName] = useState('');
   const [formContent, setFormContent] = useState('');
 
+  // Preview state
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [previewEnvId, setPreviewEnvId] = useState<string | undefined>(undefined);
+  const [previewNodeIdx, setPreviewNodeIdx] = useState<number | undefined>(undefined);
+  const [previewCmdId, setPreviewCmdId] = useState<string | undefined>(undefined);
+
   const loadCommands = useCallback(() => {
     const loaded = getCommands();
     setCommands(loaded.sort((a, b) => b.createdAt - a.createdAt));
@@ -36,7 +50,39 @@ export default function CommandManager() {
 
   useEffect(() => {
     loadCommands();
+    setEnvironments(getEnvironments());
   }, [loadCommands]);
+
+  const selectedEnv = useMemo(() => environments.find(e => e.id === previewEnvId), [environments, previewEnvId]);
+  const nodeOptions = useMemo(() => selectedEnv?.nodes ?? [], [selectedEnv]);
+  const previewCmd = useMemo(() => commands.find(c => c.id === previewCmdId), [commands, previewCmdId]);
+  const previewNode = useMemo(() => {
+    if (previewNodeIdx !== undefined && nodeOptions[previewNodeIdx]) {
+      return nodeOptions[previewNodeIdx];
+    }
+    return null;
+  }, [previewNodeIdx, nodeOptions]);
+
+  const substitutedText = useMemo(() => {
+    if (previewCmd && previewNode) {
+      return substituteVariables(previewCmd.content, previewNode);
+    }
+    return '';
+  }, [previewCmd, previewNode]);
+
+  const handleEnvChange = (envId: string) => {
+    setPreviewEnvId(envId);
+    setPreviewNodeIdx(undefined);
+  };
+
+  const handleCopyPreview = () => {
+    if (!substitutedText) return;
+    navigator.clipboard.writeText(substitutedText).then(() => {
+      message.success('已复制替换后的命令');
+    }).catch(() => {
+      message.error('复制失败');
+    });
+  };
 
   const handleOpenModal = (cmd?: CommandTemplate) => {
     if (cmd) {
@@ -93,6 +139,21 @@ export default function CommandManager() {
     });
   };
 
+  const envSelectOptions = useMemo(() => environments.map(e => ({
+    value: e.id,
+    label: `${e.name} (${e.nodes.length} 节点)`,
+  })), [environments]);
+
+  const nodeSelectOptions = useMemo(() => nodeOptions.map((n, idx) => ({
+    value: idx,
+    label: `${n.name} (${n.internalIp})`,
+  })), [nodeOptions]);
+
+  const cmdSelectOptions = useMemo(() => commands.map(c => ({
+    value: c.id,
+    label: c.name,
+  })), [commands]);
+
   return (
     <div style={{ padding: '16px' }}>
       <Card
@@ -130,9 +191,22 @@ export default function CommandManager() {
             {
               title: '操作',
               key: 'action',
-              width: 180,
+              width: 240,
               render: (_, record) => (
                 <div style={{ display: 'flex', gap: '8px' }}>
+                  <Button
+                    icon={<SnippetsOutlined />}
+                    size="small"
+                    onClick={() => {
+                      navigator.clipboard.writeText(record.content).then(() => {
+                        message.success('已复制命令内容');
+                      }).catch(() => {
+                        message.error('复制失败');
+                      });
+                    }}
+                  >
+                    复制
+                  </Button>
                   <Button
                     icon={<EditOutlined />}
                     size="small"
@@ -157,6 +231,74 @@ export default function CommandManager() {
           ]}
           locale={{ emptyText: '暂无命令模板' }}
         />
+      </Card>
+
+      <Card
+        title="命令预览"
+        style={{ marginBottom: '16px' }}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="选择环境和节点后，可以预览命令模板中变量替换后的实际内容，也可在环境详情的节点列表中点击每行的「快捷命令」按钮。"
+        />
+        <Row gutter={16} style={{ marginBottom: 12 }}>
+          <Col span={8}>
+            <div style={{ marginBottom: 4, color: '#8c8c8c', fontSize: 12 }}>环境</div>
+            <Select
+              placeholder="选择环境"
+              value={previewEnvId}
+              onChange={handleEnvChange}
+              options={envSelectOptions}
+              style={{ width: '100%' }}
+              allowClear
+              notFoundContent="暂无环境"
+            />
+          </Col>
+          <Col span={8}>
+            <div style={{ marginBottom: 4, color: '#8c8c8c', fontSize: 12 }}>节点</div>
+            <Select
+              placeholder={selectedEnv ? '选择节点' : '请先选择环境'}
+              value={previewNodeIdx}
+              onChange={(v) => setPreviewNodeIdx(v)}
+              options={nodeSelectOptions}
+              style={{ width: '100%' }}
+              allowClear
+              disabled={!selectedEnv}
+              notFoundContent={selectedEnv ? '该环境暂无节点' : '请先选择环境'}
+            />
+          </Col>
+          <Col span={8}>
+            <div style={{ marginBottom: 4, color: '#8c8c8c', fontSize: 12 }}>命令模板</div>
+            <Select
+              placeholder="选择命令模板"
+              value={previewCmdId}
+              onChange={(v) => setPreviewCmdId(v)}
+              options={cmdSelectOptions}
+              style={{ width: '100%' }}
+              allowClear
+              notFoundContent="暂无命令模板"
+            />
+          </Col>
+        </Row>
+        {substitutedText ? (
+          <div>
+            <TextArea
+              value={substitutedText}
+              readOnly
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              style={{ fontFamily: 'monospace', marginBottom: 8 }}
+            />
+            <Button type="primary" icon={<CopyOutlined />} onClick={handleCopyPreview}>
+              复制到剪贴板
+            </Button>
+          </div>
+        ) : (
+          <div style={{ color: '#8c8c8c', textAlign: 'center', padding: 16 }}>
+            请选择环境、节点和命令模板以预览替换结果
+          </div>
+        )}
       </Card>
 
       <Card title="变量参考">
