@@ -1,73 +1,218 @@
-# React + TypeScript + Vite
+# S3 EnvOps — S3 环境运维平台
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Web 端 S3 存储环境运维管理平台。支持一键解析环境信息文本、多环境管理、S3 存储运维操作、节点 Xshell 连接、快捷命令管理和操作日志。
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 一、需求描述
 
-## React Compiler
+### 背景
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+S3 存储集群运维场景中，运维人员需要频繁管理多个环境（每个环境包含节点信息、S3 凭证、管理界面等），执行桶的创建/浏览/上传/下载操作，以及通过 SSH 连接节点执行命令。这些操作通常分散在不同的工具中，效率低下。
 
-## Expanding the ESLint configuration
+### 核心需求
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+1. **环境信息管理**
+   - 一键粘贴环境信息文本，自动解析为结构化数据（环境名称、型号、CPU 架构、节点列表、S3 配置等）
+   - 支持多环境管理（增删改）
+   - 环境信息编辑采用原始文本格式，与粘贴输入保持一致体验
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+2. **S3 存储运维**
+   - 浏览桶列表，创建新桶
+   - 浏览桶内对象（支持文件夹层级导航）
+   - 上传文件（普通上传 + 多段上传，含进度条）
+   - 下载文件（优先使用系统文件选择器）
+   - 删除对象
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+3. **节点管理**
+   - 显示节点列表（内网 IP / 外网 IP / 凭证）
+   - 一键复制 IP、凭证
+   - 一键通过 Xshell 连接节点（`ssh://` 协议）
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+4. **快捷命令**
+   - 创建命令模板，支持变量占位符：`{internalIp}`, `{externalIp}`, `{credentials}`, `{nodeName}`
+   - 选择环境 + 节点后自动替换变量并复制到剪贴板
+   - 命令预览功能
+
+5. **操作日志**
+   - 所有 S3 操作自动记录日志（成功/失败/详情）
+   - 底部可折叠日志面板
+
+---
+
+## 二、系统设计
+
+### 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 前端框架 | React 19 + TypeScript (strict) |
+| 构建工具 | Vite 8 |
+| UI 组件库 | Ant Design 6 |
+| S3 SDK | AWS SDK v3 (`@aws-sdk/client-s3`, `@aws-sdk/lib-storage`) |
+| 数据持久化 | localStorage |
+
+### 架构
+
+纯前端 SPA，无后端。S3 操作通过 AWS SDK v3 浏览器直连 S3 服务。
+
+```
+┌─────────────────────────────────────────────┐
+│  浏览器 (React SPA)                          │
+│  ┌───────────────────────────────────────┐  │
+│  │  AWS SDK v3 → window.fetch            │  │
+│  │       ↓ (开发模式拦截)                 │  │
+│  │  s3Proxy.ts → /s3-cors-proxy?url=...  │  │
+│  └───────────────┬───────────────────────┘  │
+│                  │                           │
+│  ┌───────────────▼───────────────────────┐  │
+│  │  Vite Dev Server (CORS 代理中间件)     │  │
+│  │  过滤 accept-encoding → 转发请求 → S3 │  │
+│  │  过滤 content-encoding/length ← 响应  │  │
+│  └───────────────────────────────────────┘  │
+│                                              │
+│  localStorage ← 环境数据 / 命令模板 / 配置    │
+└─────────────────────────────────────────────┘
+         │
+         ▼
+   S3 服务 (AWS / MinIO / 自建)
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### 目录结构
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/
+├── types/index.ts          # TypeScript 类型定义
+├── utils/
+│   ├── storage.ts          # localStorage CRUD
+│   ├── parser.ts           # 环境文本解析器 + 序列化器
+│   └── s3Proxy.ts          # 开发模式 fetch 拦截代理
+├── store/logStore.tsx       # 全局日志 Context
+├── components/
+│   ├── AppLayout.tsx        # 主布局（Header + 侧栏 + 内容 + 日志）
+│   ├── LogPanel.tsx         # 底部可折叠日志面板
+│   ├── EnvParser.tsx        # 环境信息粘贴→解析→预览→保存
+│   ├── EnvInfoPanel.tsx     # 环境详情展示 + 编辑入口
+│   ├── EnvEditModal.tsx     # 环境文本编辑 Modal
+│   ├── NodeList.tsx          # 节点表格（IP 复制 / Xshell / 快捷命令）
+│   ├── ObjectManager.tsx    # S3 对象管理（上传/下载/删除/浏览）
+│   ├── CommandManager.tsx   # 快捷命令模板 CRUD + 命令预览
+│   └── UploadConfig.tsx     # 上传下载路径配置
+├── App.tsx                  # 根组件
+└── main.tsx                 # 入口
+```
+
+### 核心模块
+
+| 模块 | 职责 |
+|------|------|
+| **parser.ts** | 高容错解析环境信息文本 ↔ 序列化为原始文本格式 |
+| **s3Proxy.ts** | 拦截浏览器 fetch，将跨域 S3 请求重写为代理 URL |
+| **vite.config.ts** | Vite 中间件：过滤请求/响应头，转发 S3 请求，附加 CORS 头 |
+| **AppLayout.tsx** | 左侧栏：环境树（含创建桶/刷新按钮）+ 快捷命令入口；右面板：内容区 |
+| **ObjectManager.tsx** | 文件夹导航、上传（普通/多段）、下载（File System Access API）、删除 |
+
+### S3 连接策略
+
+- 自动检测 AWS / 自建 S3：从 endpoint 提取 region，AWS 用 virtual-hosted style，自建用 path style
+- S3Client 实例缓存（`useRef`），编辑环境时检测 S3 配置变更并重建
+- 开发代理过滤 `accept-encoding` 防止 S3 返回压缩响应，确保下载功能正常
+
+### 数据格式
+
+环境信息采用纯文本格式，解析器支持高容错匹配：
+
+```
+环境名称：单FSM_modngoyp
+型号：pacific
+CPU架构：arm
+盘：SATA_SSD: 960GB
+管理界面：https://7.197.106.190:8088
+账号：admin
+密码：Admi
+节点：
+FSM 192.168.22.45 7.197.106.000 root/Emulat
+FSA_0 192.168.13.8 7.241.133.00 root/Emulati
+S3配置：
+Endpoint：http://7.243.69.151:5080
+AK：7D440DC8B4040A6D2B65
+SK：dEOYg8t8srGoHebDtclhSzCp
+```
+
+---
+
+## 三、使用方法
+
+### 安装与启动
+
+```bash
+# 安装依赖
+npm install
+
+# 启动开发服务器（含 S3 CORS 代理）
+npm run dev
+
+# 生产构建
+npm run build
+
+# 预览生产构建
+npm run preview
+```
+
+### 添加环境
+
+1. 点击左侧栏顶部 **"添加环境"** 按钮
+2. 在弹出的 Modal 中粘贴环境信息文本
+3. 点击 **"解析"** — 系统自动提取环境名称、节点、S3 配置等
+4. 预览解析结果，确认无误后点击 **"确认添加"**
+
+### 编辑环境
+
+1. 在左侧栏点击环境名称，右侧展示环境详情
+2. 点击右上角 **"编辑"** 按钮
+3. 编辑器以原始文本格式显示环境信息，直接修改文本
+4. 点击 **"解析"** 预览，确认后点击 **"确认保存"**
+
+### S3 桶操作
+
+- **浏览桶列表**: 展开左侧栏的环境项，自动加载桶列表
+- **创建桶**: 点击环境名称右侧的 `+` 图标
+- **刷新桶**: 点击环境名称右侧的 `↻` 图标
+- **浏览对象**: 点击桶名进入对象管理页面
+- **上传**: 点击"上传对象"按钮选择文件，支持普通上传和多段上传（可配置分段大小）
+- **下载**: 点击文件行的"下载"按钮（Chromium 浏览器支持选择保存路径）
+- **删除**: 点击"删除"按钮并确认
+
+### 节点操作
+
+1. 在环境详情中展开 **"节点列表"** 面板
+2. **复制 IP**: 点击 IP 旁的复制图标
+3. **显示凭证**: 点击"显示/隐藏"切换密码可见性
+4. **Xshell 连接**: 点击"Xshell"按钮（需本地已安装 Xshell）
+5. **快捷命令**: 点击"快捷命令"下拉选择模板，自动替换变量并复制到剪贴板
+
+### 快捷命令
+
+1. 点击左侧栏底部 **"快捷命令"**
+2. 新建命令模板，内容支持变量：
+   - `{internalIp}` — 内网 IP
+   - `{externalIp}` — 外网 IP
+   - `{credentials}` — 登录凭证
+   - `{nodeName}` — 节点名称
+3. 在"命令预览"区域选择环境 → 节点 → 命令模板，查看替换后的实际命令
+
+### 操作日志
+
+- 所有 S3 操作自动记录到底部日志面板
+- 有新日志时面板自动展开
+- 支持清除日志、手动收起
+
+---
+
+## 已知限制
+
+1. **生产环境 CORS**: 开发模式通过 Vite 代理绕过，生产环境需要 S3 服务端配置 CORS 或部署反向代理
+2. **File System Access API**: 仅 Chromium 浏览器支持 `showSaveFilePicker`，其他浏览器回退为标准下载
+3. **Xshell**: 依赖本地安装 Xshell 客户端并注册 `ssh://` 协议处理器
+4. **localStorage**: 数据仅存于当前浏览器，清除浏览器数据会丢失
+5. **日志**: 刷新页面后日志清空（仅保留在内存中，最多 200 条）
