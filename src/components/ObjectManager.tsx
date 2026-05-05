@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { ListObjectsV2Command, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
@@ -40,7 +40,7 @@ export default function ObjectManager({ client, bucketName, onBack }: ObjectMana
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadMode, setUploadMode] = useState<UploadMode>('normal');
-  const [partSize, setPartSize] = useState(8);
+  const [partSize, setPartSize] = useState(5);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const listObjects = useCallback(async (currentPrefix: string) => {
@@ -80,6 +80,10 @@ export default function ObjectManager({ client, bucketName, onBack }: ObjectMana
     }
   }, [client, bucketName, addLog]);
 
+  useEffect(() => {
+    listObjects(prefix);
+  }, [prefix, listObjects]);
+
   const handleUpload = async (file: File) => {
     if (!file) return;
     setUploading(true);
@@ -89,12 +93,14 @@ export default function ObjectManager({ client, bucketName, onBack }: ObjectMana
 
     try {
       if (uploadMode === 'multipart') {
+        const arrayBuffer = await file.arrayBuffer();
         const upload = new Upload({
           client,
           params: {
             Bucket: bucketName,
             Key: key,
-            Body: file,
+            Body: new Uint8Array(arrayBuffer),
+            ContentLength: arrayBuffer.byteLength,
           },
           partSize: partSize * 1024 * 1024,
         });
@@ -109,10 +115,14 @@ export default function ObjectManager({ client, bucketName, onBack }: ObjectMana
         await upload.done();
       } else {
         const { PutObjectCommand } = await import('@aws-sdk/client-s3');
+        // Read file as ArrayBuffer to avoid SDK's aws-chunked encoding stream
+        // which calls readableStream.getReader() — incompatible with browser's ReadableStream
+        const arrayBuffer = await file.arrayBuffer();
         await client.send(new PutObjectCommand({
           Bucket: bucketName,
           Key: key,
-          Body: file,
+          Body: new Uint8Array(arrayBuffer),
+          ContentLength: arrayBuffer.byteLength,
         }));
         setUploadProgress(100);
       }
@@ -281,11 +291,11 @@ export default function ObjectManager({ client, bucketName, onBack }: ObjectMana
         {uploadMode === 'multipart' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
             <span>分段大小:</span>
-            <InputNumber
-              min={1}
-              max={100}
-              value={partSize}
-              onChange={(v) => setPartSize(v || 8)}
+              <InputNumber
+                min={5}
+                max={100}
+                value={partSize}
+                onChange={(v) => setPartSize(v || 5)}
               addonAfter="MB"
             />
           </div>
