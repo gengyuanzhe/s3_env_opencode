@@ -40,6 +40,27 @@ function parseS3Config(text: string): S3Config {
   return { endpoint, ak, sk };
 }
 
+export function serializeEnvironment(env: Environment): string {
+  const lines: string[] = [
+    `环境名称：${env.name}`,
+    `型号：${env.model}`,
+    `CPU架构：${env.cpuArch}`,
+    `盘：${env.diskInfo}`,
+    `管理界面：${env.managementUrl}`,
+    `账号：${env.managementAccount}`,
+    `密码：${env.managementPassword}`,
+    `节点：`,
+  ];
+  for (const node of env.nodes) {
+    lines.push(`${node.name} ${node.internalIp} ${node.externalIp} ${node.credentials}`);
+  }
+  lines.push(`S3配置：`);
+  lines.push(`Endpoint：${env.s3Config.endpoint}`);
+  lines.push(`AK：${env.s3Config.ak}`);
+  lines.push(`SK：${env.s3Config.sk}`);
+  return lines.join('\n');
+}
+
 export function parseEnvironment(text: string): Environment | null {
   if (!text || !text.trim()) return null;
 
